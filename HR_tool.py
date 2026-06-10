@@ -251,8 +251,8 @@ def color_miss(val):
     return 'color:#e74c3c;font-weight:bold'
 
 styled = (summary.style
-          .applymap(color_late, subset=['Late / Disc. Days'])
-          .applymap(color_miss, subset=['Missing Days'])
+          .map(color_late, subset=['Late / Disc. Days'])
+          .map(color_miss, subset=['Missing Days'])
           .set_properties(**{'text-align': 'left', 'white-space': 'pre-wrap'}))
 
 max_dates  = max(summary['Late / Disc. Days'].max(), summary['Missing Days'].max(), 1)
