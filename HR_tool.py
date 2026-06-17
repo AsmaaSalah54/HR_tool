@@ -4,7 +4,7 @@ import re, math
 from datetime import datetime, time, date as date_type
 from pandas.tseries.offsets import CustomBusinessDay
 
-st.set_page_config(page_title="Attendance Analyzer", page_icon="🕐", layout="wide")
+st.set_page_config(page_title="Attendance Analyzer", layout="wide")
 
 # ── Egyptian public holidays (actual observed dates) ──────────────────────────
 DEFAULT_HOLIDAYS = [
@@ -27,21 +27,8 @@ DEFAULT_HOLIDAYS = [
 
 WORK_START  = time(9, 0)
 LATE_THRESH = 1.5
-HQ_LAT, HQ_LON, RADIUS = 30.0444, 31.2357, 50
 
 # ── helpers ───────────────────────────────────────────────────────────────────
-def haversine_km(lat1, lon1, lat2, lon2):
-    R = 6371
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp = math.radians(lat2 - lat1); dl = math.radians(lon2 - lon1)
-    a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-def extract_coords(url):
-    if not isinstance(url, str): return None, None
-    m = re.search(r'q=([-\d.]+),([-\d.]+)', url)
-    return (float(m.group(1)), float(m.group(2))) if m else (None, None)
-
 def get_working_days(start, end, holiday_dates):
     cbd = CustomBusinessDay(weekmask='Sun Mon Tue Wed Thu', holidays=holiday_dates)
     return pd.bdate_range(start, end, freq=cbd).date.tolist()
@@ -128,8 +115,7 @@ def process(file):
                                datetime.combine(d, WORK_START)).total_seconds() / 3600)
         is_mission = bool(re.search(r'mission|client|visit|field|off.?site',
                                     str(r.get('Reason', '')).lower()))
-        lat, lon   = extract_coords(r.get('CI_URL'))
-        off_site   = haversine_km(HQ_LAT, HQ_LON, lat, lon) > RADIUS if lat else False
+
         discounted = False if is_mission else (late_h > LATE_THRESH)
         rows.append({'Employee': emp, 'Date': d, 'Late Hours': round(late_h, 2),
                      'Discounted': discounted})
@@ -191,11 +177,108 @@ for _, hdate_str, hname in st.session_state.h_rows:
     if d:
         active_holidays[d] = hname
 
-uploaded = st.file_uploader("Upload attendance Excel (.xlsx)", type=["xlsx"],
-                             label_visibility="collapsed")
+# ── master employee list ─────────────────────────────────────────────────────
+ALL_EMPLOYEES = [
+    'Abdallah Adel',
+    'Abdallah Salama',
+    'Abdelrahman Elsherif',
+    'Abdelrahman Hassan',
+    'Abdelrahman Mohamed Khalaf',
+    'Abdelrahman Mohamed Sayed Okaby',
+    'Abdelrahman Mohsen Ahmed',
+    'Abdelrahman Tarek',
+    'Ahmed Abdelkader',
+    'Ahmed Abdelsattar',
+    'Ahmed Aladdin',
+    'Ahmed Almeldien',
+    'Ahmed Amr',
+    'Ahmed Atef Gamil Mahmoud',
+    'Ahmed Eid Ibrahim Mohamed',
+    'Ahmed El Naggar',
+    'Ahmed Essam Hussien',
+'Ahmed Essam Rashdan',
+'Ahmed Hesham',
+'Ahmed Hossam',
+'Ahmed Magdy Momtaz',
+'Ahmed Maher',
+'Ahmed Nageh',
+'Ahmed Sherif Hassan Rateb',
+'Ali Mohamed',
+'Amin Ibrahim Amin Abdelhafez',
+'Amr Naguib',
+'Amr Selim',
+'Andrew William',
+'Ashraf Salah Ahmed Mohamed',
+'Asmaa Salah',
+'Bassam Ahmed Hassanen',
+'Desouky Eid',
+'Dina Adel',
+'Dina Fayed',
+'Dina Mahmoud Sayed Rashwan',
+'Eslam Nasser',
+'Eyad Abdallah',
+'Gasser Hisham',
+'Hany Fares',
+'Hassan Mohamed',
+'Haytham Abou Zeid',
+'Hazem Tarek Mohamed',
+'Hisham Magdy',
+'Hossam Aglan',
+'Islam Shaaban',
+'Khaled Salman',
+'Mahmoud Abdellah',
+'Mahmoud Samaha',
+'Mahmoud Sherif',
+'Mariam Hossam',
+'Menna Khaled Hassan',
+'Mohab Mohamed Hossam',
+'Mohamed Abdelbaky Mostafa',
+'Mohamed Ahmed Abdelmaqsoud',
+'Mohamed Ahmed Abdelsatar Shatla',
+'Mohamed Alaa',
+'Mohamed El Sadek',
+'Mohamed Essmat',
+'Mohamed Hisham',
+'Mohamed Medhat',
+'Mohamed Nasser',
+'Mohamed Omar Ali Wasfy',
+'Mohamed Rakha',
+'Mohamed Saad Abdelaziz Shaaban',
+'Mohamed Sayed Mansour Ahmed',
+'Mohamed Sherif Hassan Rateb',
+'Mohamed Yousry Aly',
+'Mokhtar Shabaan',
+'Mostafa Mohamed Anwar',
+'Nader Nabil',
+'Omar Aboubakr',
+'Omar Bahaa',
+'Omar Hassan',
+'Omar Magdy',
+'Omar Selim',
+'Ramadan Mahmoud',
+'Rania Shiba',
+'Refaat Ahmed',
+'Sohailah Mohamed Salah',
+'Amr Tarek',
+'Mohamed Galal',
+'Mahmoud AbdelAziz',
+'Abdelrhman Tarek',
+'Sara essam mohamed ',
+'Amr Maged Hanfy',
+'Mohab mohamed hossam',
+'merna sameh',
+'Youssef Tarek',
+
+]
+
+# ── file uploader ─────────────────────────────────────────────────────────────
+st.markdown("**📂 Upload attendance file**")
+uploaded = st.file_uploader("Attendance Excel", type=["xlsx"],
+                            label_visibility="collapsed")
+
 if not uploaded:
-    st.markdown("<div style='text-align:center;padding:60px;color:#888;font-size:18px'>"
-                "📂 Drop your attendance .xlsx file above to get started</div>",
+    st.markdown("<div style='text-align:center;padding:40px;color:#888;font-size:18px'>"
+                "Drop your attendance .xlsx file above to get started</div>",
                 unsafe_allow_html=True)
     st.stop()
 
@@ -207,9 +290,18 @@ all_work_days   = get_working_days(daily['Date'].min(), daily['Date'].max(),
 period_holidays = {d: n for d, n in active_holidays.items()
                    if daily['Date'].min() <= d <= daily['Date'].max()}
 
-# ── per-employee summary ──────────────────────────────────────────────────────
+# employees in attendance but not in master list → append with warning
+attended_emps   = list(daily['Employee'].unique())
+unknown_emps    = [e for e in attended_emps if e not in ALL_EMPLOYEES]
+all_emps        = ALL_EMPLOYEES + unknown_emps
+
+if unknown_emps:
+    with st.expander(f"⚠️ {len(unknown_emps)} name(s) in the attendance file not found in the master list"):
+        for n in unknown_emps:
+            st.markdown(f"- `{n}`")
+
 records = []
-for emp in daily['Employee'].unique():
+for emp in all_emps:
     ed            = daily[daily['Employee'] == emp]
     attended      = set(ed['Date'].tolist())
     late_dates    = sorted(ed[ed['Discounted']]['Date'].tolist())
@@ -272,7 +364,5 @@ if period_holidays:
             st.markdown(f"- **{d}** ({d.strftime('%A')}) — {name}{tag}")
 
 export = summary.copy()
-export['Late Day Dates']    = export['Late Day Dates'].str.replace('\n', ', ')
-export['Missing Day Dates'] = export['Missing Day Dates'].str.replace('\n', ', ')
 csv = export.to_csv(index=False).encode('utf-8')
 st.download_button("⬇️ Download CSV", csv, "attendance_summary.csv", "text/csv")
